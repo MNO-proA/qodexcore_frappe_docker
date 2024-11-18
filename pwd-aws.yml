@@ -41,8 +41,8 @@ services:
       restart_policy:
         condition: none
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs
     entrypoint:
       - bash
       - -c
