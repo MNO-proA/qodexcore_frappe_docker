@@ -5,8 +5,8 @@ services:
       restart_policy:
         condition: on-failure
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites  # Mount EBS volume to sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs # Mount EBS volume for logs
 
   configurator:
     image: frappe/erpnext:v15.41.2
@@ -16,7 +16,6 @@ services:
     entrypoint:
       - bash
       - -c
-    # add redis_socketio for backward compatibility
     command:
       - >
         ls -1 apps > sites/apps.txt;
@@ -33,39 +32,8 @@ services:
       REDIS_QUEUE: redis-queue:6379
       SOCKETIO_PORT: "9000"
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-
-  create-site:
-    image: frappe/erpnext:v15.41.2
-    deploy:
-      restart_policy:
-        condition: none
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    entrypoint:
-      - bash
-      - -c
-    command:
-      - >
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        export start=`date +%s`;
-        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
-          [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
-        do
-          echo "Waiting for sites/common_site_config.json to be created";
-          sleep 5;
-          if (( `date +%s`-start > 120 )); then
-            echo "could not find sites/common_site_config.json with required keys";
-            exit 1
-          fi
-        done;
-        echo "sites/common_site_config.json found";
-        bench new-site --no-mariadb-socket --admin-password=admin --db-root-password=admin --install-app erpnext --set-default qodexcore;
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites  # Mount EBS volume to sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs # Mount EBS volume for logs
 
   db:
     image: mariadb:10.6
@@ -80,11 +48,27 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
-      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
+      - --skip-innodb-read-only-compressed
     environment:
       MYSQL_ROOT_PASSWORD: admin
     volumes:
-      - db-data:/var/lib/mysql
+      - /mnt/erpnext_data/db-data:/var/lib/mysql  # Bind EBS volume for db-data
+
+  redis-queue:
+    image: redis:6.2-alpine
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - /mnt/erpnext_data/redis-queue-data:/data  # Bind EBS volume for Redis queue
+
+  redis-cache:
+    image: redis:6.2-alpine
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - /mnt/erpnext_data/redis-cache-data:/data  # Bind EBS volume for Redis cache
 
   frontend:
     image: frappe/erpnext:v15.41.2
@@ -105,8 +89,8 @@ services:
       PROXY_READ_TIMEOUT: 120
       CLIENT_MAX_BODY_SIZE: 50m
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites  # Bind EBS volume to sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs  # Bind EBS volume for logs
     ports:
       - "8080:8080"
 
@@ -121,8 +105,8 @@ services:
       - --queue
       - long,default,short
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites  # Bind EBS volume to sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs  # Bind EBS volume for logs
 
   queue-short:
     image: frappe/erpnext:v15.41.2
@@ -135,24 +119,8 @@ services:
       - --queue
       - short,default
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-
-  redis-queue:
-    image: redis:6.2-alpine
-    deploy:
-      restart_policy:
-        condition: on-failure
-    volumes:
-      - redis-queue-data:/data
-
-  redis-cache:
-    image: redis:6.2-alpine
-    deploy:
-      restart_policy:
-        condition: on-failure
-    volumes:
-      - redis-cache-data:/data
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites  # Bind EBS volume to sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs  # Bind EBS volume for logs
 
   scheduler:
     image: frappe/erpnext:v15.41.2
@@ -163,8 +131,8 @@ services:
       - bench
       - schedule
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites  # Bind EBS volume to sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs  # Bind EBS volume for logs
 
   websocket:
     image: frappe/erpnext:v15.41.2
@@ -175,14 +143,12 @@ services:
       - node
       - /home/frappe/frappe-bench/apps/frappe/socketio.js
     volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+      - /mnt/erpnext_data/sites:/home/frappe/frappe-bench/sites  # Bind EBS volume to sites
+      - /mnt/erpnext_data/logs:/home/frappe/frappe-bench/logs  # Bind EBS volume for logs
 
-volumes:
-  db-data:
-  redis-queue-data:
-  redis-cache-data:
-  sites:
-  logs:
-
-# docker compose -p test -f pwd.yml up
+# volumes:
+#   db-data:
+#   redis-queue-data:
+#   redis-cache-data:
+#   sites:
+#   logs:
